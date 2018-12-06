@@ -8,10 +8,10 @@ static constexpr uint8_t ACK_RETRIES = 5;
 static constexpr uint8_t ACK_TIMEOUT = 10;
 //TODO in general better timeout handling and fault handling in this class start with while loop timeouts.
 
-template< class _spi, class _sys,  class _cs, class _irq, CarrierFrequency _freq, class _uart>
+template< class _spi, class _sys,  class _cs, class _irq, CarrierFrequency _freq>
 class Rfm69
 {
-	using rfm69_comm = Rfm69Comm< _spi, _cs, _freq, _uart >;
+	using rfm69_comm = Rfm69Comm< _spi, _cs, _freq>;
 
 public:
 	static void init()
@@ -301,12 +301,12 @@ private:
 	static uint8_t mNode;
 };
 
-template< class _spi, class _sys,  class _cs, class _irq, CarrierFrequency _freq,  class _uart>
-bool Rfm69<_spi, _sys, _cs, _irq, _freq,  _uart>::mPayloadReady = false;
-template< class _spi, class _sys,  class _cs, class _irq, CarrierFrequency _freq,  class _uart>
-char Rfm69<_spi, _sys, _cs, _irq, _freq, _uart>::mEncryptKey[16] = { 0 };
-template< class _spi, class _sys,  class _cs, class _irq, CarrierFrequency _freq, class _uart>
-uint8_t Rfm69<_spi, _sys, _cs, _irq, _freq, _uart>::mNode = 0xFF;
+template< class _spi, class _sys,  class _cs, class _irq, CarrierFrequency _freq>
+bool Rfm69<_spi, _sys, _cs, _irq, _freq>::mPayloadReady = false;
+template< class _spi, class _sys,  class _cs, class _irq, CarrierFrequency _freq>
+char Rfm69<_spi, _sys, _cs, _irq, _freq>::mEncryptKey[16] = { 0 };
+template< class _spi, class _sys,  class _cs, class _irq, CarrierFrequency _freq>
+uint8_t Rfm69<_spi, _sys, _cs, _irq, _freq>::mNode = 0xFF;
 
 
 #endif

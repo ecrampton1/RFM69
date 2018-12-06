@@ -2,6 +2,9 @@
 #define _RFM69_COMM_HPP
 
 #include "rfm69/RFM69registers.h"
+#ifdef __arm__
+#include <stdio.h>
+#endif
 
 
 //Some default values
@@ -61,7 +64,7 @@ struct PacketHeader
 	uint8_t Control;
 } __attribute__((packed));
 
-template< class _spi, class _cs, CarrierFrequency _freq, class _uart>
+template< class _spi, class _cs, CarrierFrequency _freq>
 class Rfm69Comm
 {
 public:
@@ -131,12 +134,17 @@ public:
 		uint8_t ret = 0;
 		for( uint8_t i = 1; i <= 0x4F; ++i) {
 			ret = readRegister(i);
+			#ifndef __arm__
 			_uart::send(i);
 			_uart::send("  -  ");
 			_uart::send(ret);
-			_uart::sendLine("\r");
+			_uart::sendLine("\r");			
+			#else
+			printf("%d - %d\n",i,ret);
+			#endif
 		}
 	}
+	
 
 
 	//This writes a rfm69 specific packet using the FIFO, note you can send empty packets useful for acks
