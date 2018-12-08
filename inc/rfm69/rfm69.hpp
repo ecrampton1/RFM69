@@ -2,7 +2,6 @@
 #define _RFM69_HPP
 #include "rfm69/rfm69_comm.hpp"
 #include <string.h>
-#include "msp430/msp_uart.hpp"
 
 static constexpr uint8_t ACK_RETRIES = 5;
 static constexpr uint8_t ACK_TIMEOUT = 10;
@@ -114,7 +113,6 @@ public:
 			readPayload(reinterpret_cast<uint8_t*>(&header),sizeof(header));
 			if(SEND_ACK == header.Control && destination_node == header.Source){
 				ret = true;
-				McuPeripheral::McuUart<UartA0, McuPeripheral::BaudRate::BAUD_115200, Speed::SPEED_16MHZ>::send("ACK Received\n");
 				break;
 			}
 		}
@@ -191,8 +189,11 @@ private:
 		_irq::intEnable();
 		enablePayloadReadyIrq();
 	}
-
+#ifdef __arm__
+	static void gpioIrqTriggered(void)
+#else
 	static void gpioIrqTriggered(void* args)
+#endif
 	{
 		if(isRxEnabled() && isIrqPayloadReady())
 		{

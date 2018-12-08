@@ -1,6 +1,8 @@
-#ifndef _GPIO_WRAPPER_HPP
-#define _GPIO_WRAPPER_HPP
+#ifndef _SYS_WRAPPER_HPP
+#define _SYS_WRAPPER_HPP
 #include <unistd.h>
+#include <stdint.h>
+#include <sys/time.h>
 
 class SysWrapper
 {
@@ -8,7 +10,7 @@ public:
 
 	static inline void delayInMs(uint32_t timeInMs)
 	{
-		usleep(timeInMS*1000);
+		usleep(timeInMs*1000);
 	}
 	
 	
@@ -23,3 +25,5 @@ public:
 	} 	
 	
 };
+
+#endif //_SYS_WRAPPER_HPP
