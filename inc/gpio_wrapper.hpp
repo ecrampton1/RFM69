@@ -48,6 +48,11 @@ public:
     	}
 	}
 	
+	static bool read()
+	{
+		return digitalRead(gpio);
+	}
+	
 private:
 	static callback_t mPinHandler;
 	static int mEdgeType;

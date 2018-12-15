@@ -18,9 +18,10 @@ public:
 	{
 		struct timeval  tv;
 		gettimeofday(&tv, NULL);
-
-		double time_in_mill = 
-		      (tv.tv_sec) * 1000 + (tv.tv_usec) / 1000 ;
+	
+		uint64_t time_in_mill = 
+		      (tv.tv_sec) * 1000 + (tv.tv_usec) / 1000;
+		uint32_t millis = time_in_mill % 4294967295;
 		return static_cast<uint32_t>(time_in_mill); 
 	} 	
 	

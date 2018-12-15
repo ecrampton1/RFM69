@@ -20,6 +20,7 @@ public:
 		waitForModeReady();
 		configInterrupt();
 		mPayloadReady = false;
+		mPacketSent = false;
 	}
 
 	static void putToSleep()
@@ -45,7 +46,7 @@ public:
 	}
 
 	static void setNetworkAddress(uint8_t address)
-	{
+	{ 
 		rfm69_comm::writeRegisterSyncValue2(address);
 	}
 
@@ -73,6 +74,7 @@ public:
 
 		if(REQUEST_ACK == header->Control){
 			writePayload(nullptr,0,header->Source,SEND_ACK);
+			printf("Send Ack\n");
 		}
 
 		return header->Length;
@@ -89,6 +91,7 @@ public:
 		PacketHeader header;
 		buildPacketHeader(header,size,destination_node,control);
 		if(false == waitForReadyToSend()){
+			printf("Failed\n");
 			return false;
 		}
 		return writeAndWaitForSent(header,buf);
@@ -96,14 +99,17 @@ public:
 
 	static bool writePayloadWithAck(uint8_t* const buf, const int size, uint8_t destination_node)
 	{
-
-		if(false == waitForReadyToSend()){
-			return false;
-		}
 		bool ret = false;
 		PacketHeader header;
 		for(int i = 0; i < ACK_RETRIES; ++i) {
-			writePayload(buf,size,destination_node,REQUEST_ACK);
+			if(false == writePayload(buf,size,destination_node,REQUEST_ACK)){
+				printf("Write Fail\n");
+				if(!mPayloadReady) {
+					printf("No Pay\n");
+					continue;
+				}
+				
+			}
 			enableRx();
 			int j = 0;
 			while(false == mPayloadReady && ++j < ACK_TIMEOUT) {
@@ -129,6 +135,7 @@ public:
 		}
 		reading = rfm69_comm::readRegisterRssiValue();
 		reading = -reading>>1;
+		printf("%d\n",reading);
 		return reading;
 	}
 
@@ -195,16 +202,28 @@ private:
 	static void gpioIrqTriggered(void* args)
 #endif
 	{
-		if(isRxEnabled() && isIrqPayloadReady())
+		uint8_t flags = rfm69_comm::readRegisterIrqFlags1();
+		if(RF_IRQFLAGS2_PAYLOADREADY == flags)
 		{
 			mPayloadReady = true;
 			enableStandby();
 		}
+		if(RF_IRQFLAGS2_PACKETSENT == flags)
+		{
+			mPacketSent = true;
+			enableStandby();
+		}
+		
 	}
 
 	static void enablePayloadReadyIrq()
 	{
 		rfm69_comm::writeRegisterDioMapping1(RF_DIOMAPPING1_DIO0_01);//DIO0 triggers on payload ready in rx mode
+	}
+	
+	static void enablePacketSentIrq()
+	{
+		rfm69_comm::writeRegisterDioMapping1(RF_DIOMAPPING1_DIO0_00);//DIO0 triggers on packet sent
 	}
 
 	static bool isReady()
@@ -216,7 +235,12 @@ private:
 	{
 		return (rfm69_comm::readRegisterIrqFlags2() & RF_IRQFLAGS2_PAYLOADREADY);
 	}
-
+	
+	static bool isIrqPacketSent()
+	{
+		return (rfm69_comm::readRegisterIrqFlags2() & RF_IRQFLAGS2_PACKETSENT);
+	}
+	
 	static void forceRestartRx()
 	{
 		rfm69_comm::writeRegisterPacketConfig2(rfm69_comm::readRegisterPacketConfig2() | RF_PACKET2_RXRESTART);
@@ -234,11 +258,17 @@ private:
 
 	static bool writeAndWaitForSent(PacketHeader& header,uint8_t* const buf)
 	{
+		enableStandby();
+		waitForModeReady();
+		enablePacketSentIrq();
+		printf("%x -- %x\n",rfm69_comm::readRegisterIrqFlags1(),rfm69_comm::readRegisterIrqFlags2());
 		int i = rfm69_comm::writePacket(header,buf);
+		printf("%x -- %x\n",rfm69_comm::readRegisterIrqFlags1(),rfm69_comm::readRegisterIrqFlags2());
 		enableTx();
+		_sys::delayInMs(5);
 		return waitForPacketSent();
 	}
-
+ 
 	static bool waitForModeReady()
 	{
 		static const uint32_t timeOut = 500;
@@ -254,13 +284,16 @@ private:
 	static bool waitForPacketSent()
 	{
 		int i = 0;
-
-		while(0 == (rfm69_comm::readRegisterIrqFlags2() & RF_IRQFLAGS2_PACKETSENT)) {
-			_sys::delayInMs(1);
-			if(++i > 500) {
+		
+		while(false == _irq::read()) {
+			if(++i > 5000) {
+				printf("%x -- %x\n",rfm69_comm::readRegisterIrqFlags1(),rfm69_comm::readRegisterIrqFlags2());
+				enableStandby();
 				return false;
 			}
 		}
+		mPacketSent = false;
+		enableStandby();
 		return true;
 	}
 
@@ -272,25 +305,24 @@ private:
 	static bool waitForReadyToSend()
 	{
 		const uint32_t timeOut = 500 + _sys::millis();
-
+		bool ret = true;
 		enableRx();
 		while(false == checkRxRssiLimit()) {
 			forceRestartRx();
 			if(timeOut < _sys::millis()) {
-				return false; //Something not quite right.
+				ret = false; //Something not quite right.
+				break;
 			}
 		}
-
-		enableStandby();
-
-		return true;
+		enableStandby();	
+		return ret;
 	}
 
 	static bool checkRxRssiLimit()
 	{
 		bool ret = false;
-		static constexpr int channelRssiLimit = -100;
-		if(isRxEnabled() && (readRssi() < channelRssiLimit)) {
+		static constexpr int channelRssiLimit = -90;
+		if(isRxEnabled() && (readRssi() <= channelRssiLimit)) {
 			ret = true;
 		}
 		return ret;
@@ -298,12 +330,15 @@ private:
 
 
 	static char mEncryptKey[16];
-	static bool mPayloadReady;
+	static volatile bool mPayloadReady;
+		static volatile bool mPacketSent;
 	static uint8_t mNode;
 };
 
 template< class _spi, class _sys,  class _cs, class _irq, CarrierFrequency _freq>
-bool Rfm69<_spi, _sys, _cs, _irq, _freq>::mPayloadReady = false;
+volatile bool Rfm69<_spi, _sys, _cs, _irq, _freq>::mPayloadReady = false;
+template< class _spi, class _sys,  class _cs, class _irq, CarrierFrequency _freq>
+volatile bool Rfm69<_spi, _sys, _cs, _irq, _freq>::mPacketSent = false;
 template< class _spi, class _sys,  class _cs, class _irq, CarrierFrequency _freq>
 char Rfm69<_spi, _sys, _cs, _irq, _freq>::mEncryptKey[16] = { 0 };
 template< class _spi, class _sys,  class _cs, class _irq, CarrierFrequency _freq>

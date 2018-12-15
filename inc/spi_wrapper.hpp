@@ -46,7 +46,9 @@ public:
 
 	static int send( uint8_t* data, int size)
 	{
-		int ret = wiringPiSPIDataRW(spi,data,size);
+		uint8_t cp[size];
+		std::memcpy(cp,data,size);
+		int ret = wiringPiSPIDataRW(spi,cp,size);
 		if(ret == -1) {
 			ret = 0; //0 bytes sent
 		}
