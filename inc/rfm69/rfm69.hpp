@@ -3,9 +3,7 @@
 #include "rfm69/rfm69_comm.hpp"
 #include <string.h>
 
-static constexpr uint8_t ACK_RETRIES = 5;
-static constexpr uint8_t ACK_TIMEOUT = 10;
-//TODO in general better timeout handling and fault handling in this class start with while loop timeouts.
+
 
 template< class _spi, class _sys,  class _cs, class _irq, CarrierFrequency _freq>
 class Rfm69
@@ -62,7 +60,6 @@ public:
 
 	static int readPayload(uint8_t* ret_buf, const int max_size)
 	{
-		//disable interrupts?
 		PacketHeader* header = reinterpret_cast<PacketHeader*>(ret_buf);
 		mPayloadReady = false;
 		enableStandby();
@@ -74,7 +71,6 @@ public:
 
 		if(REQUEST_ACK == header->Control){
 			writePayload(nullptr,0,header->Source,SEND_ACK);
-			printf("Send Ack\n");
 		}
 
 		return header->Length;
@@ -91,7 +87,6 @@ public:
 		PacketHeader header;
 		buildPacketHeader(header,size,destination_node,control);
 		if(false == waitForReadyToSend()){
-			printf("Failed\n");
 			return false;
 		}
 		return writeAndWaitForSent(header,buf);
@@ -103,9 +98,7 @@ public:
 		PacketHeader header;
 		for(int i = 0; i < ACK_RETRIES; ++i) {
 			if(false == writePayload(buf,size,destination_node,REQUEST_ACK)){
-				printf("Write Fail\n");
 				if(!mPayloadReady) {
-					printf("No Pay\n");
 					continue;
 				}
 				
@@ -135,7 +128,6 @@ public:
 		}
 		reading = rfm69_comm::readRegisterRssiValue();
 		reading = -reading>>1;
-		printf("%d\n",reading);
 		return reading;
 	}
 
@@ -202,13 +194,13 @@ private:
 	static void gpioIrqTriggered(void* args)
 #endif
 	{
-		uint8_t flags = rfm69_comm::readRegisterIrqFlags1();
-		if(RF_IRQFLAGS2_PAYLOADREADY == flags)
+		uint8_t flags = rfm69_comm::readRegisterIrqFlags2();
+		if(RF_IRQFLAGS2_PAYLOADREADY == (flags & RF_IRQFLAGS2_PAYLOADREADY))
 		{
 			mPayloadReady = true;
 			enableStandby();
 		}
-		if(RF_IRQFLAGS2_PACKETSENT == flags)
+		if(RF_IRQFLAGS2_PACKETSENT == (flags & RF_IRQFLAGS2_PACKETSENT))
 		{
 			mPacketSent = true;
 			enableStandby();
@@ -261,11 +253,8 @@ private:
 		enableStandby();
 		waitForModeReady();
 		enablePacketSentIrq();
-		printf("%x -- %x\n",rfm69_comm::readRegisterIrqFlags1(),rfm69_comm::readRegisterIrqFlags2());
-		int i = rfm69_comm::writePacket(header,buf);
-		printf("%x -- %x\n",rfm69_comm::readRegisterIrqFlags1(),rfm69_comm::readRegisterIrqFlags2());
+		int i = rfm69_comm::writePacket(header,buf);//TODO check number sent
 		enableTx();
-		_sys::delayInMs(5);
 		return waitForPacketSent();
 	}
  
@@ -283,11 +272,11 @@ private:
 
 	static bool waitForPacketSent()
 	{
+		const uint32_t timeOut = 10 + _sys::millis();
 		int i = 0;
 		
-		while(false == _irq::read()) {
-			if(++i > 5000) {
-				printf("%x -- %x\n",rfm69_comm::readRegisterIrqFlags1(),rfm69_comm::readRegisterIrqFlags2());
+		while(false == mPacketSent) {
+			if(timeOut < _sys::millis()) {
 				enableStandby();
 				return false;
 			}
@@ -310,7 +299,7 @@ private:
 		while(false == checkRxRssiLimit()) {
 			forceRestartRx();
 			if(timeOut < _sys::millis()) {
-				ret = false; //Something not quite right.
+				ret = false;
 				break;
 			}
 		}
@@ -321,7 +310,7 @@ private:
 	static bool checkRxRssiLimit()
 	{
 		bool ret = false;
-		static constexpr int channelRssiLimit = -90;
+		static constexpr int channelRssiLimit = RSSI_LIMIT;
 		if(isRxEnabled() && (readRssi() <= channelRssiLimit)) {
 			ret = true;
 		}
@@ -331,8 +320,12 @@ private:
 
 	static char mEncryptKey[16];
 	static volatile bool mPayloadReady;
-		static volatile bool mPacketSent;
+	static volatile bool mPacketSent;
 	static uint8_t mNode;
+	
+	static constexpr uint8_t ACK_RETRIES = 5;
+	static constexpr uint8_t ACK_TIMEOUT = 10;
+	static constexpr int RSSI_LIMIT = -90;
 };
 
 template< class _spi, class _sys,  class _cs, class _irq, CarrierFrequency _freq>
