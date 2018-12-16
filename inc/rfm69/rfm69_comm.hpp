@@ -2,6 +2,9 @@
 #define _RFM69_COMM_HPP
 
 #include "rfm69/RFM69registers.h"
+#ifdef __arm__
+#include <stdio.h>
+#endif
 
 
 //Some default values
@@ -61,7 +64,7 @@ struct PacketHeader
 	uint8_t Control;
 } __attribute__((packed));
 
-template< class _spi, class _cs, CarrierFrequency _freq, class _uart>
+template< class _spi, class _cs, CarrierFrequency _freq>
 class Rfm69Comm
 {
 public:
@@ -102,11 +105,12 @@ public:
 		// +13dBm formula: Pout = -18 + OutputPower (with PA0 or PA1**)
 		// +17dBm formula: Pout = -14 + OutputPower (with PA1 and PA2)**
 		// +20dBm formula: Pout = -11 + OutputPower (with PA1 and PA2)** and high power PA settings (section 3.3.7 in datasheet)
-		///* 0x11 */ { REG_PALEVEL, RF_PALEVEL_PA0_ON | RF_PALEVEL_PA1_OFF | RF_PALEVEL_PA2_OFF | RF_PALEVEL_OUTPUTPOWER_11111},
-		///* 0x13 */ { REG_OCP, RF_OCP_ON | RF_OCP_TRIM_95 }, // over current protection (default is 95mA)
+		writeRegisterPaLevel( RF_PALEVEL_PA1_ON | RF_PALEVEL_PA2_ON | RF_PALEVEL_OUTPUTPOWER_10000);
+		writeRegisterOcp( RF_OCP_ON | RF_OCP_TRIM_95 ); // over current protection (default is 95mA)
 
 		// RXBW defaults are { REG_RXBW, RF_RXBW_DCCFREQ_010 | RF_RXBW_MANT_24 | RF_RXBW_EXP_5} (RxBw: 10.4KHz)
 		writeRegisterRxBw( RF_RXBW_DCCFREQ_010 | RF_RXBW_MANT_16 | RF_RXBW_EXP_2 ); // (BitRate < 2 * RxBw)
+		//writeRegisterLna( RF_LNA_GAINSELECT_MAXMINUS48 );
 		//for BR-19200: /* 0x19 */ { REG_RXBW, RF_RXBW_DCCFREQ_010 | RF_RXBW_MANT_24 | RF_RXBW_EXP_3 },
 		writeRegisterDioMapping1( RF_DIOMAPPING1_DIO0_01 ); // DIO0 is the only IRQ we're using
 		writeRegisterDioMapping2( RF_DIOMAPPING2_CLKOUT_OFF ); // DIO5 ClkOut disable for power saving
@@ -131,24 +135,29 @@ public:
 		uint8_t ret = 0;
 		for( uint8_t i = 1; i <= 0x4F; ++i) {
 			ret = readRegister(i);
+			#ifndef __arm__
 			_uart::send(i);
 			_uart::send("  -  ");
 			_uart::send(ret);
-			_uart::sendLine("\r");
+			_uart::sendLine("\r");			
+			#else
+			printf("%d - %d\n",i,ret);
+			#endif
 		}
 	}
+	
 
 
 	//This writes a rfm69 specific packet using the FIFO, note you can send empty packets useful for acks
 	static int writePacket(PacketHeader& header, uint8_t* const buf=nullptr)
 	{
 		//I need to change REG defines to constexpr for better typing
-		uint8_t addr = REG_FIFO | WRITE_ACCESS;
 		_cs::clear();
+		uint8_t addr = REG_FIFO | WRITE_ACCESS;
+		uint8_t userLength = header.Length - sizeof(PacketHeader);
 		_spi::send( addr );
 		int i = _spi::send(reinterpret_cast<uint8_t*>(&header),sizeof(PacketHeader));
-		if(header.Length > sizeof(PacketHeader)) {
-			uint8_t userLength = header.Length - sizeof(PacketHeader);
+		if(userLength > sizeof(PacketHeader) && nullptr != buf) {
 			i = i + _spi::send(buf,userLength);
 		}
 		_cs::set();
@@ -203,7 +212,11 @@ public:
 	WRITE_8BIT_REGISTER( NodeAddress, REG_NODEADRS )
 	WRITE_8BIT_REGISTER( RssiConfig, REG_RSSICONFIG )
 	WRITE_REGISTERS(AesKey,REG_AESKEY1)
-
+	WRITE_8BIT_REGISTER(PaLevel,REG_PALEVEL)
+	WRITE_8BIT_REGISTER(Ocp,REG_OCP)
+	WRITE_8BIT_REGISTER( Lna, REG_LNA )
+	WRITE_8BIT_REGISTER(TestPa1, REG_TESTPA1)
+	WRITE_8BIT_REGISTER( TestPa2, REG_TESTPA2 )
 
 	///Function used for reading from the RFM69
 	READ_8BIT_REGISTER( OpMode, REG_OPMODE )
