@@ -2,9 +2,6 @@
 #define _RFM69_COMM_HPP
 
 #include "rfm69/RFM69registers.h"
-#ifdef __arm__
-#include <stdio.h>
-#endif
 
 
 //Some default values
@@ -58,13 +55,13 @@ constexpr uint8_t SEND_ACK = 0x80;
 
 struct PacketHeader
 {
-	uint8_t Length;
+	//uint8_t Length; Length is not included in packet
 	uint8_t Destination;
 	uint8_t Source;
 	uint8_t Control;
 } __attribute__((packed));
 
-template< class _spi, class _cs, CarrierFrequency _freq>
+template< class _spi, class _cs, CarrierFrequency _freq, class _uart>
 class Rfm69Comm
 {
 public:
@@ -105,21 +102,22 @@ public:
 		// +13dBm formula: Pout = -18 + OutputPower (with PA0 or PA1**)
 		// +17dBm formula: Pout = -14 + OutputPower (with PA1 and PA2)**
 		// +20dBm formula: Pout = -11 + OutputPower (with PA1 and PA2)** and high power PA settings (section 3.3.7 in datasheet)
-		writeRegisterPaLevel( RF_PALEVEL_PA1_ON | RF_PALEVEL_PA2_ON | RF_PALEVEL_OUTPUTPOWER_10000);
-		writeRegisterOcp( RF_OCP_ON | RF_OCP_TRIM_95 ); // over current protection (default is 95mA)
+		///* 0x11 */ { REG_PALEVEL, RF_PALEVEL_PA0_ON | RF_PALEVEL_PA1_OFF | RF_PALEVEL_PA2_OFF | RF_PALEVEL_OUTPUTPOWER_11111},
+		///* 0x13 */ { REG_OCP, RF_OCP_ON | RF_OCP_TRIM_95 }, // over current protection (default is 95mA)
 
 		// RXBW defaults are { REG_RXBW, RF_RXBW_DCCFREQ_010 | RF_RXBW_MANT_24 | RF_RXBW_EXP_5} (RxBw: 10.4KHz)
 		writeRegisterRxBw( RF_RXBW_DCCFREQ_010 | RF_RXBW_MANT_16 | RF_RXBW_EXP_2 ); // (BitRate < 2 * RxBw)
-		//writeRegisterLna( RF_LNA_GAINSELECT_MAXMINUS48 );
 		//for BR-19200: /* 0x19 */ { REG_RXBW, RF_RXBW_DCCFREQ_010 | RF_RXBW_MANT_24 | RF_RXBW_EXP_3 },
 		writeRegisterDioMapping1( RF_DIOMAPPING1_DIO0_01 ); // DIO0 is the only IRQ we're using
 		writeRegisterDioMapping2( RF_DIOMAPPING2_CLKOUT_OFF ); // DIO5 ClkOut disable for power saving
 		writeRegisterIrqFlags2( RF_IRQFLAGS2_FIFOOVERRUN ); // writing to this bit ensures that the FIFO & status flags are reset
 		writeRegisterRssiThreshold( RSSILEVEL ); // must be set to dBm = (-Sensitivity / 2), default is 0xE4 = 228 so -114dBm
 		///* 0x2D */ { REG_PREAMBLELSB, RF_PREAMBLESIZE_LSB_VALUE } // default 3 preamble bytes 0xAAAAAA
-		writeRegisterSyncConfig( RF_SYNC_ON | RF_SYNC_FIFOFILL_AUTO | RF_SYNC_SIZE_2 | RF_SYNC_TOL_0 );
+		writeRegisterSyncConfig( RF_SYNC_ON | RF_SYNC_FIFOFILL_AUTO | RF_SYNC_SIZE_4 | RF_SYNC_TOL_0 );
 		writeRegisterSyncValue1( Rfm69DefaultSync );
-		writeRegisterSyncValue2( 100 ); // DEFAULT NETWORK ID
+		writeRegisterSyncValue2( Rfm69DefaultSync );
+		writeRegisterSyncValue3( Rfm69DefaultSync );
+		writeRegisterSyncValue4( 100 ); // DEFAULT NETWORK ID
 		writeRegisterPacketConfig1( RF_PACKET1_FORMAT_VARIABLE | RF_PACKET1_DCFREE_OFF | RF_PACKET1_CRC_ON | RF_PACKET1_CRCAUTOCLEAR_ON | RF_PACKET1_ADRSFILTERING_OFF );
 		///* 0x38 */ { REG_PAYLOADLENGTH, 66 }, // in variable length mode: the max frame size, not used in TX DEFAULT is 0x40
 		///* 0x39 */ { REG_NODEADRS, nodeID }, // turned off because we're not using address filtering
@@ -135,29 +133,25 @@ public:
 		uint8_t ret = 0;
 		for( uint8_t i = 1; i <= 0x4F; ++i) {
 			ret = readRegister(i);
-			#ifndef __arm__
 			_uart::send(i);
 			_uart::send("  -  ");
 			_uart::send(ret);
-			_uart::sendLine("\r");			
-			#else
-			printf("%d - %d\n",i,ret);
-			#endif
+			_uart::sendLine("\r");
 		}
 	}
-	
 
 
 	//This writes a rfm69 specific packet using the FIFO, note you can send empty packets useful for acks
-	static int writePacket(PacketHeader& header, uint8_t* const buf=nullptr)
+	static int writePacket(PacketHeader& header,const uint8_t length=sizeof(PacketHeader), uint8_t* const buf=nullptr)
 	{
 		//I need to change REG defines to constexpr for better typing
-		_cs::clear();
 		uint8_t addr = REG_FIFO | WRITE_ACCESS;
-		uint8_t userLength = header.Length - sizeof(PacketHeader);
+		_cs::clear();
 		_spi::send( addr );
+		_spi::send( length );
 		int i = _spi::send(reinterpret_cast<uint8_t*>(&header),sizeof(PacketHeader));
-		if(userLength > sizeof(PacketHeader) && nullptr != buf) {
+		if(length > sizeof(PacketHeader)) {
+			uint8_t userLength = length - sizeof(PacketHeader);
 			i = i + _spi::send(buf,userLength);
 		}
 		_cs::set();
@@ -195,6 +189,8 @@ public:
 	WRITE_8BIT_REGISTER( FreqDevLsb, REG_FDEVLSB )
 	WRITE_8BIT_REGISTER( SyncValue1, REG_SYNCVALUE1 )
 	WRITE_8BIT_REGISTER( SyncValue2, REG_SYNCVALUE2 )
+	WRITE_8BIT_REGISTER( SyncValue3, REG_SYNCVALUE3 )
+	WRITE_8BIT_REGISTER( SyncValue4, REG_SYNCVALUE4 )
 	WRITE_8BIT_REGISTER( FrfMsb, REG_FRFMSB )
 	WRITE_8BIT_REGISTER( FrfMid, REG_FRFMID )
 	WRITE_8BIT_REGISTER( FrfLsb, REG_FRFLSB )
@@ -212,11 +208,7 @@ public:
 	WRITE_8BIT_REGISTER( NodeAddress, REG_NODEADRS )
 	WRITE_8BIT_REGISTER( RssiConfig, REG_RSSICONFIG )
 	WRITE_REGISTERS(AesKey,REG_AESKEY1)
-	WRITE_8BIT_REGISTER(PaLevel,REG_PALEVEL)
-	WRITE_8BIT_REGISTER(Ocp,REG_OCP)
-	WRITE_8BIT_REGISTER( Lna, REG_LNA )
-	WRITE_8BIT_REGISTER(TestPa1, REG_TESTPA1)
-	WRITE_8BIT_REGISTER( TestPa2, REG_TESTPA2 )
+
 
 	///Function used for reading from the RFM69
 	READ_8BIT_REGISTER( OpMode, REG_OPMODE )
@@ -234,22 +226,39 @@ public:
 
 	static int readPacket(uint8_t* ret_buf,const int max_size)
 	{
+
 		_cs::clear();
 		_spi::send( static_cast<uint8_t>(REG_FIFO) );
 		//This is actually the length of the payload in FIFO
-		ret_buf[0]= _spi::exchange( DUMMY_BYTE );
+		int length = _spi::exchange( DUMMY_BYTE );
 		//sanity check that our buffer size can handle this and its not 0
-		if(ret_buf[0] < sizeof(PacketHeader) || ret_buf[0] > max_size) {
-			_cs::set();
-			return -1;
+		if(length >= sizeof(PacketHeader) && length <= max_size) {
+			for(int i = 0; i <= length; ++i)//length is not include in the length count
+			{
+				ret_buf[i] = _spi::exchange( DUMMY_BYTE );
+			}
 		}
-
-		for(int i = 1; i <= ret_buf[0]; ++i)
-		{
-			ret_buf[i] = _spi::exchange( DUMMY_BYTE );
+		else{
+			for(int i = 1; i <= length; ++i)
+			{
+				_uart::send( _spi::exchange( DUMMY_BYTE) ,McuPeripheral::Base::BASE_HEX);
+			}
+			_uart::sendLine();
+			length = -1;
 		}
 		_cs::set();
-		return ret_buf[0];
+
+		while((readRegisterIrqFlags2() & RF_IRQFLAGS2_FIFONOTEMPTY))
+		{
+			_cs::clear();
+			_spi::send( static_cast<uint8_t>(REG_FIFO) );
+			_uart::send( _spi::exchange( DUMMY_BYTE) ,McuPeripheral::Base::BASE_HEX);
+			_cs::set();
+		}
+
+
+
+		return length;
 	}
 
 	static uint8_t readRegister(uint8_t address)
