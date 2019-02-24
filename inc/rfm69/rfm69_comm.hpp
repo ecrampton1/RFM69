@@ -2,10 +2,14 @@
 #define _RFM69_COMM_HPP
 
 #include "rfm69/RFM69registers.h"
+#include <stdint.h>
+#ifdef __arm__
+#include <stdio.h>
+#endif
 
 
 //Some default values
-constexpr uint8_t Rfm69DefaultNodeId = 100;  //Make sure you change this for each node
+constexpr int Rfm69DefaultNodeId = 100;  //Make sure you change this for each node
 constexpr uint8_t Rfm69DefaultRssi = 220;
 constexpr uint8_t Rfm69DefaultSync = 0x2D;
 
@@ -102,8 +106,8 @@ public:
 		// +13dBm formula: Pout = -18 + OutputPower (with PA0 or PA1**)
 		// +17dBm formula: Pout = -14 + OutputPower (with PA1 and PA2)**
 		// +20dBm formula: Pout = -11 + OutputPower (with PA1 and PA2)** and high power PA settings (section 3.3.7 in datasheet)
-		///* 0x11 */ { REG_PALEVEL, RF_PALEVEL_PA0_ON | RF_PALEVEL_PA1_OFF | RF_PALEVEL_PA2_OFF | RF_PALEVEL_OUTPUTPOWER_11111},
-		///* 0x13 */ { REG_OCP, RF_OCP_ON | RF_OCP_TRIM_95 }, // over current protection (default is 95mA)
+		writeRegisterPaLevel( RF_PALEVEL_PA1_ON | RF_PALEVEL_PA2_ON | RF_PALEVEL_OUTPUTPOWER_10000);
+		writeRegisterOcp( RF_OCP_ON | RF_OCP_TRIM_95 ); // over current protection (default is 95mA)
 
 		// RXBW defaults are { REG_RXBW, RF_RXBW_DCCFREQ_010 | RF_RXBW_MANT_24 | RF_RXBW_EXP_5} (RxBw: 10.4KHz)
 		writeRegisterRxBw( RF_RXBW_DCCFREQ_010 | RF_RXBW_MANT_16 | RF_RXBW_EXP_2 ); // (BitRate < 2 * RxBw)
@@ -208,6 +212,11 @@ public:
 	WRITE_8BIT_REGISTER( NodeAddress, REG_NODEADRS )
 	WRITE_8BIT_REGISTER( RssiConfig, REG_RSSICONFIG )
 	WRITE_REGISTERS(AesKey,REG_AESKEY1)
+	WRITE_8BIT_REGISTER(PaLevel,REG_PALEVEL)
+	WRITE_8BIT_REGISTER(Ocp,REG_OCP)
+	WRITE_8BIT_REGISTER( Lna, REG_LNA )
+	WRITE_8BIT_REGISTER(TestPa1, REG_TESTPA1)
+	WRITE_8BIT_REGISTER( TestPa2, REG_TESTPA2 )
 
 
 	///Function used for reading from the RFM69
@@ -239,22 +248,9 @@ public:
 			}
 		}
 		else{
-			for(int i = 1; i <= length; ++i)
-			{
-				_uart::send( _spi::exchange( DUMMY_BYTE) ,McuPeripheral::Base::BASE_HEX);
-			}
-			_uart::sendLine();
 			length = -1;
 		}
 		_cs::set();
-
-		while((readRegisterIrqFlags2() & RF_IRQFLAGS2_FIFONOTEMPTY))
-		{
-			_cs::clear();
-			_spi::send( static_cast<uint8_t>(REG_FIFO) );
-			_uart::send( _spi::exchange( DUMMY_BYTE) ,McuPeripheral::Base::BASE_HEX);
-			_cs::set();
-		}
 
 
 

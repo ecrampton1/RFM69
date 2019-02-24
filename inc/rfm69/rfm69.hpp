@@ -2,8 +2,7 @@
 #define _RFM69_HPP
 #include "rfm69/rfm69_comm.hpp"
 #include <string.h>
-#include "msp430/msp_uart.hpp"
-#include "msp430/msp_gpio.hpp"
+
 
 static constexpr uint8_t ACK_RETRIES = 5;
 static constexpr uint8_t ACK_TIMEOUT = 20;
@@ -114,7 +113,7 @@ public:
 			while(false == mPayloadReady && ++j < ACK_TIMEOUT) {
 				_sys::delayInMs(1);
 			}
-			if(j >= ACK_TIMEOUT) {_uart::sendLine("TOut"); continue;}
+			if(j >= ACK_TIMEOUT) {continue;}
 			readPayload(buffer,sizeof(buffer));
 			if(SEND_ACK == header->Control && destination_node == header->Source){
 				ret = true;
@@ -196,7 +195,7 @@ private:
 	static void configInterrupt()
 	{
 		_irq::input();
-		_irq::setPinIrqHandler(&gpioIrqTriggered,0);
+		_irq::setPinIrqHandler((callback_t)&gpioIrqTriggered,(void*)0);
 		_irq::edgeLowToHigh();
 		_irq::clearIntFlag();
 		_irq::intEnable();
@@ -323,7 +322,7 @@ private:
 	static bool checkRxRssiLimit()
 	{
 		bool ret = false;
-		static constexpr int channelRssiLimit = -100;
+		static constexpr int channelRssiLimit = -90;
 		if(isRxEnabled() && (readRssi() < channelRssiLimit)) {
 			ret = true;
 		}

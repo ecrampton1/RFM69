@@ -1,6 +1,7 @@
 #ifndef _GPIO_WRAPPER_HPP
 #define _GPIO_WRAPPER_HPP
 #include <wiringPi.h>
+#include <stdlib.h>
 
 typedef void (*callback_t) (void);
 
@@ -43,9 +44,27 @@ public:
 	
 	static void intEnable()
 	{
+		//static enabled = false;
+		
+		//if(false == enabled) {
 		if (wiringPiISR (gpio, mEdgeType, mPinHandler) < 0) {
 			printf("Error on gpio interrupt setup");
     	}
+    	/***Maybe not needed**}
+    	else {
+    		//Hacky work around since wiringpi doesnt support disabling the gpio irq
+    		system ("/usr/local/bin/gpio edge 17 rising");
+    	}*/
+	}
+	
+	static void intDisable()
+	{
+		system ("/usr/local/bin/gpio edge 17 none");
+	}
+	
+	static void clearIntFlag()
+	{
+		//Do nothing? RPI should be not need to clear this...
 	}
 	
 	static bool read()

@@ -13,6 +13,11 @@ public:
 		usleep(timeInMs*1000);
 	}
 	
+	static inline void delayInUs(uint32_t timeInUs)
+	{
+		usleep(timeInUs);
+	}
+	
 	
 	static inline uint32_t millis()
 	{
