@@ -7,7 +7,7 @@
 #include <wiringPiSPI.h>
 
 
-constexpr uint32_t SPI_SPEED_HZ = 4000000; //4MHZ spi clock
+constexpr uint32_t SPI_SPEED_HZ = 16000000; //4MHZ spi clock
 
 template< int spi >
 class SpiWrapper
@@ -46,7 +46,7 @@ public:
 
 	static int send( uint8_t* data, int size)
 	{
-		uint8_t cp[size];
+		uint8_t cp[64];
 		std::memcpy(cp,data,size);
 		int ret = wiringPiSPIDataRW(spi,cp,size);
 		if(ret == -1) {
