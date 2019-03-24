@@ -106,8 +106,10 @@ public:
 		// +13dBm formula: Pout = -18 + OutputPower (with PA0 or PA1**)
 		// +17dBm formula: Pout = -14 + OutputPower (with PA1 and PA2)**
 		// +20dBm formula: Pout = -11 + OutputPower (with PA1 and PA2)** and high power PA settings (section 3.3.7 in datasheet)
+#ifdef __arm__
 		writeRegisterPaLevel( RF_PALEVEL_PA1_ON | RF_PALEVEL_PA2_ON | RF_PALEVEL_OUTPUTPOWER_10000);
 		writeRegisterOcp( RF_OCP_ON | RF_OCP_TRIM_95 ); // over current protection (default is 95mA)
+#endif
 
 		// RXBW defaults are { REG_RXBW, RF_RXBW_DCCFREQ_010 | RF_RXBW_MANT_24 | RF_RXBW_EXP_5} (RxBw: 10.4KHz)
 		writeRegisterRxBw( RF_RXBW_DCCFREQ_010 | RF_RXBW_MANT_16 | RF_RXBW_EXP_2 ); // (BitRate < 2 * RxBw)
@@ -241,7 +243,7 @@ public:
 		//This is actually the length of the payload in FIFO
 		int length = _spi::exchange( DUMMY_BYTE );
 		//sanity check that our buffer size can handle this and its not 0
-		if(length >= sizeof(PacketHeader) && length <= max_size) {
+		if(length >= (int)sizeof(PacketHeader) && length <= max_size) {
 			for(int i = 0; i <= length; ++i)//length is not include in the length count
 			{
 				ret_buf[i] = _spi::exchange( DUMMY_BYTE );

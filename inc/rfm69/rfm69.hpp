@@ -21,7 +21,6 @@ public:
 		waitForModeReady();
 		configInterrupt();
 		mPayloadReady = false;
-		mPacketSent = false;
 	}
 
 	static void putToSleep()
@@ -58,7 +57,15 @@ public:
 
 	static bool isPayloadReady()
 	{
+#ifdef __arm__
+		if(mRxMode && _irq::read()) {
+			enableStandby();
+			return true;
+		}
+		return false;
+#else
 		return mPayloadReady;
+#endif
 	}
 
 	static int readPayload(uint8_t* ret_buf, const int max_size)
@@ -98,10 +105,6 @@ public:
 
 	static bool writePayloadWithAck(uint8_t* const buf, const int size, uint8_t destination_node)
 	{
-
-		//if(false == waitForReadyToSend()){
-		//	return false;
-		//}
 		uint8_t buffer[sizeof(PacketHeader)];
 		bool ret = false;
 		//PacketHeader header;
@@ -110,10 +113,7 @@ public:
 			writePayload(buf,size,destination_node,REQUEST_ACK);
 			//waitForModeReady();
 			enableRx();
-			int j = 0;
-			while(false == mPayloadReady && ++j < ACK_TIMEOUT) {
-				_sys::delayInMs(1);
-			}
+			int j = waitForAck();
 			if(j >= ACK_TIMEOUT) {continue;}
 			readPayload(buffer,sizeof(buffer));
 			if(SEND_ACK == header->Control && destination_node == header->Source){
@@ -162,13 +162,13 @@ public:
 
 	static void enableRx()
 	{
-		mPayloadReady = false;
+		
 		if(isIrqPayloadReady()) {
 			forceRestartRx();
 		}
 		enablePayloadReadyIrq();
 		rfm69_comm::writeRegisterOpMode((rfm69_comm::readRegisterOpMode() & 0xE3) | RF_OPMODE_RECEIVER);
-		//waitForModeReady();
+		mRxMode = true;
 	}
 
 	static bool isRxEnabled()
@@ -196,10 +196,12 @@ private:
 	static void configInterrupt()
 	{
 		_irq::input();
+#ifndef __arm__
 		_irq::setPinIrqHandler((callback_t)&gpioIrqTriggered,(void*)0);
 		_irq::edgeLowToHigh();
 		_irq::clearIntFlag();
 		_irq::intEnable();
+#endif
 	}
 
 #ifdef __arm__
@@ -208,16 +210,10 @@ private:
 	static void gpioIrqTriggered(void* args)
 #endif
 	{
-
 		uint8_t flags = rfm69_comm::readRegisterIrqFlags2();
 		if(RF_IRQFLAGS2_PAYLOADREADY == (flags & RF_IRQFLAGS2_PAYLOADREADY))
 		{
 			mPayloadReady = true;
-			enableStandby();
-		}
-		if(RF_IRQFLAGS2_PACKETSENT == (flags & RF_IRQFLAGS2_PACKETSENT))
-		{
-			mPacketSent = true;
 			enableStandby();
 		}
 	}
@@ -225,15 +221,12 @@ private:
 	static void enablePayloadReadyIrq()
 	{
 		rfm69_comm::writeRegisterDioMapping1(RF_DIOMAPPING1_DIO0_01);//DIO0 triggers on payload ready in rx mode
-		//_irq::clearIntFlag();  //remove any flags set previously.
-		//_irq::intEnable();
 	}
 
 	//Note this function is going to enable polling of the pin for a quicker response in the TX mode
 	static void enablePacketSentIrq()
 	{
 		rfm69_comm::writeRegisterDioMapping1(RF_DIOMAPPING1_DIO0_00);//DIO0 triggers on packet sent in tx mode
-		//_irq::intDisable();
 	}
 
 	static bool isReady()
@@ -264,24 +257,26 @@ private:
 
 	static void enableTx()
 	{
+		mRxMode = false;
 		//reset packet sent status
-		mPacketSent = false;
 		rfm69_comm::writeRegisterOpMode((rfm69_comm::readRegisterOpMode() & 0xE3) | RF_OPMODE_TRANSMITTER);
 	}
 
 	static void enableStandby()
 	{
+		mRxMode = false;
 		rfm69_comm::writeRegisterOpMode((rfm69_comm::readRegisterOpMode() & 0xE3) | RF_OPMODE_STANDBY);
 	}
 
 	static bool writeAndWaitForSent(PacketHeader& header,const uint8_t length, uint8_t* const buf)
 	{
 		waitForModeReady();
-		int i = rfm69_comm::writePacket(header, length, buf);
+		if( rfm69_comm::writePacket(header, length, buf) < 0) {
+			return false;
+		}
 		enablePacketSentIrq();
 		enableTx();
 		bool ret = waitForPacketSent();
-		//enableStandby();  //TODO maybe this isnt necessary?  Go straight to rx mode?
 		return ret;
 	}
 
@@ -289,9 +284,8 @@ private:
 	{
 		static const uint32_t timeOut = 500;
 		uint32_t currentTime = _sys::millis();
-		while( false == isReady() ){
+		while( false == isReady()  ){
 			if(currentTime + timeOut < _sys::millis()) {
-				_uart::sendLine("wFReady");
 				return false; //Something not quite right.
 			}
 		}
@@ -301,16 +295,28 @@ private:
 	static bool waitForPacketSent()
 	{
 		int i = 0;
-
-		//while(0 == (rfm69_comm::readRegisterIrqFlags2() & RF_IRQFLAGS2_PACKETSENT)) {
-		while(false == mPacketSent) {
-		//while(false == _irq::read()){
+		while(false == _irq::read()){
 			_sys::delayInUs(100);
 			if(++i > 50) {
 				return false;
 			}
 		}
 		return true;
+	}
+	
+	static void waitForAck()
+	{
+		int j = 0;
+#ifdef __arm__
+		while(false == _irq::read() && ++j < ACK_TIMEOUT) {
+			_sys::delayInMs(1);
+		}
+#else	
+		while(false == mPayloadReady && ++j < ACK_TIMEOUT) {
+			_sys::delayInMs(1);
+		}
+#endif
+		return j;
 	}
 
 	static bool isRssiReady()
@@ -326,7 +332,6 @@ private:
 		while(false == checkRxRssiLimit()) {
 			forceRestartRx();
 			if(timeOut < _sys::millis()) {
-			//printf("Ready timeout\n");
 				return false; //Something not quite right.
 			}
 		}
@@ -340,25 +345,23 @@ private:
 	{
 		bool ret = false;
 		static constexpr int channelRssiLimit = -90;
-		//int8_t rssi = readRssi();
 		if(isRxEnabled() && (readRssi() < channelRssiLimit)) {
 			ret = true;
 		}
-		//printf("Rssi %d\n",rssi);
 		return ret;
 	}
 
 
 	static char mEncryptKey[16];
 	static volatile bool mPayloadReady;
-	static volatile bool mPacketSent;
+	static volatile bool mRxMode;
 	static uint8_t mNode;
 };
 
 template< class _spi, class _sys,  class _cs, class _irq, CarrierFrequency _freq,  class _uart>
 volatile bool Rfm69<_spi, _sys, _cs, _irq, _freq,  _uart>::mPayloadReady = false;
 template< class _spi, class _sys,  class _cs, class _irq, CarrierFrequency _freq,  class _uart>
-volatile bool Rfm69<_spi, _sys, _cs, _irq, _freq,  _uart>::mPacketSent = false;
+volatile bool Rfm69<_spi, _sys, _cs, _irq, _freq,  _uart>::mRxMode = false;
 template< class _spi, class _sys,  class _cs, class _irq, CarrierFrequency _freq,  class _uart>
 char Rfm69<_spi, _sys, _cs, _irq, _freq, _uart>::mEncryptKey[16] = { 0 };
 template< class _spi, class _sys,  class _cs, class _irq, CarrierFrequency _freq, class _uart>
